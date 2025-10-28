@@ -18,8 +18,11 @@ def make_env(env_id, render_mode=None):
     env = FrameStack(env, 4)
     return env
 
-# HYPERPARAMETERS
-ENV_ID = "ALE/Pong-v5"
+# --- Hyperparameters ---
+# Can either be pong or montezuma
+# MontezumaRevenge-v5 = sparse rewards, good for testing RND
+# Pong-v5 = dense rewards, baseline for PPO
+ENV_ID = "ALE/MontezumaRevenge-v5"
 USE_RND = True # False: BASELINE PPO; True: PPO + RND
 NUM_STEPS_PER_ROLLOUT = 2048
 LEARNING_RATE = 2.5e-4
@@ -40,7 +43,7 @@ TOTAL_TIMESTEPS = 1_000_000
 
 def main():
     # Set run name
-    run_name = f"PPO_RND_Pong" if USE_RND else f"PPO_Baseline_Pong"
+    run_name = f"PPO_RND" if USE_RND else f"PPO_Baseline"
 
     # Set up the WanDB logging
     wandb.init(
@@ -123,9 +126,12 @@ def main():
                 int_reward=torch.tensor(int_reward, dtype=torch.float32).to(device),
                 done=torch.tensor(done, dtype=torch.float32).to(device)
             )
+
             obs = next_obs_chw
+
             current_ep_ext_reward += ext_reward
             current_ep_int_reward += int_reward
+
             if done:
                 ep_ext_rewards.append(current_ep_ext_reward)
                 ep_int_rewards.append(current_ep_int_reward)
@@ -135,14 +141,13 @@ def main():
                 obs, info = env.reset()
                 obs = torch.tensor(np.transpose(obs, (2, 0, 1)), dtype=torch.float32).to(device)
 
-        # END ROLLOUT
-
+        # End of Rollout
         with torch.no_grad():
             _, _, last_value = agent.get_action_and_value(obs)
 
         storage.store_last(obs, last_value)
 
-        # 2. RND Training
+        # RND Training
         rnd_loss = 0
         if USE_RND:
             all_obs = storage.get_data()[0][:-1] 
@@ -151,6 +156,7 @@ def main():
         # 3. PPO Training
         agent.train(storage)
 
+        # 4. Logging
         log_data = {
             "timestep": total_timesteps,
             "update": update,
